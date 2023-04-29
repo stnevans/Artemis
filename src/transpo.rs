@@ -17,7 +17,7 @@ const DEFAULT_TABLE_ENTRY : TableEntry = TableEntry {
     best_move : DUMMY_MOVE
 };
 
-const DEFAULT_TT_SIZE : u64 = 1048576;
+const DEFAULT_TT_SIZE : u64 = 1048576 * 10;
 #[derive(Clone, Copy)]
 pub enum EntryFlags {
     Exact,
@@ -29,7 +29,7 @@ pub struct TableEntry {
     pub hash : u64,
     pub eval : i32, 
     pub depth : u8,
-    flags : EntryFlags,
+    pub flags : EntryFlags,
     pub best_move : ChessMove,
 }
 

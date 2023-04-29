@@ -9,8 +9,7 @@ mod evaluation;
 mod search;
 mod transpo;
 
-use crate::search::get_best_move;
-use crate::evaluation::eval_no_ply;
+use crate::search::Search;
 use crate::transpo::TranspoTable;
 
 fn main() {
@@ -18,15 +17,13 @@ fn main() {
     tester();
     // demo_eval();
     // demo_search();
-    
     // test_board(&board_from_fen("rnbqkbnr/pppp1ppp/8/4p3/5PP1/8/PPPPP2P/RNBQKBNR b KQkq - 0 1"));
     uci::uci_loop();
 }
 
 
-
 fn test_board(board : &Board) {
-    println!("Eval is {}", eval_no_ply(board));
+    println!("Eval is {}", evaluation::eval_no_ply(board));
     print!("Moves are ");
     let mut moves = MoveGen::new_legal(&board);
     for chess_move in moves {
@@ -35,7 +32,9 @@ fn test_board(board : &Board) {
     println!("");
     for depth in 1..=2 {
         let mut tt = TranspoTable::new();
-        let best_move: ChessMove = get_best_move(&board, &search::get_default_cfg(depth), &mut tt);
+        let mut search = Search::new();
+        search.set_cfg_depth(depth);
+        let best_move: ChessMove = search.get_best_move(&board, &mut tt);
         println!("Best Move should be d8h4: {best_move}");
     }
 
@@ -99,14 +98,17 @@ fn  demo_search () {
     let board: Board = board_from_fen("8/4P3/8/8/8/8/8/1k1K4 w - - 0 1"); // Next move queen
     let mut tt = TranspoTable::new();
 
-    let best_move = get_best_move(&board, &search::get_default_cfg(1), &mut tt);
+    let mut search = Search::new();
+    search.set_cfg_depth(1);
+    let best_move = search.get_best_move(&board, &mut tt);
     println!("Best Move should be queen: {best_move}");
     assert_eq!(best_move, ChessMove{source: Square::E7, dest: Square::E8, promotion: Some(Piece::Queen)});
 
 
     let board = board_from_fen("8/8/4P3/8/8/8/8/1k1K4 w - - 0 1");
     for depth in 1..5 {
-        let best_move = get_best_move(&board, &search::get_default_cfg(depth), &mut tt);
+        search.set_cfg_depth(depth);
+        let best_move = search.get_best_move(&board, &mut tt);
         println!("Best Move should be queen: {best_move}");
     }
 
