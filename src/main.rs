@@ -8,8 +8,10 @@ mod uci;
 mod evaluation;
 mod search;
 mod transpo;
+
 use crate::search::get_best_move;
 use crate::evaluation::eval_no_ply;
+use crate::transpo::TranspoTable;
 
 fn main() {
     println!("Hello, world!");
@@ -32,7 +34,8 @@ fn test_board(board : &Board) {
     }
     println!("");
     for depth in 1..=2 {
-        let best_move: ChessMove = get_best_move(&board, &search::get_default_cfg(depth));
+        let mut tt = TranspoTable::new();
+        let best_move: ChessMove = get_best_move(&board, &search::get_default_cfg(depth), &mut tt);
         println!("Best Move should be d8h4: {best_move}");
     }
 
@@ -70,7 +73,6 @@ fn tester() {
 
     // make sure it works
     assert_eq!(count, 20);
-    get_best_move(&board, &search::get_default_cfg(2));
 }
 
 
@@ -95,15 +97,16 @@ fn demo_eval () {
 
 fn  demo_search () {
     let board: Board = board_from_fen("8/4P3/8/8/8/8/8/1k1K4 w - - 0 1"); // Next move queen
-    
-    let best_move = get_best_move(&board, &search::get_default_cfg(1));
+    let mut tt = TranspoTable::new();
+
+    let best_move = get_best_move(&board, &search::get_default_cfg(1), &mut tt);
     println!("Best Move should be queen: {best_move}");
     assert_eq!(best_move, ChessMove{source: Square::E7, dest: Square::E8, promotion: Some(Piece::Queen)});
 
 
     let board = board_from_fen("8/8/4P3/8/8/8/8/1k1K4 w - - 0 1");
     for depth in 1..5 {
-        let best_move = get_best_move(&board, &search::get_default_cfg(depth));
+        let best_move = get_best_move(&board, &search::get_default_cfg(depth), &mut tt);
         println!("Best Move should be queen: {best_move}");
     }
 

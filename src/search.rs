@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::time::{SystemTime};
 
 use crate::evaluation;
-
+use crate::transpo::TranspoTable;
 
 const MIN_ALPHA : i32 = i32::MIN + 500;
 const MIN_BETA : i32 = i32::MAX - 500;
@@ -40,17 +40,17 @@ struct Line {
 }
 
 pub fn get_default_cfg(depth: u32) -> Cfg {
-    Cfg { depth_left: depth }
+    Cfg { depth_left: depth}
 }
 
 // TOdo cfg
-pub fn get_best_move(board : &Board, cfg: &Cfg) -> ChessMove {   
-    return iterative_deepening(board, &cfg).0;
+pub fn get_best_move(board : &Board, cfg: &Cfg, tt : &mut TranspoTable) -> ChessMove {   
+    return iterative_deepening(board, &cfg, tt).0;
 }
 
 
 
-fn iterative_deepening(board : &Board, cfg : &Cfg) -> (ChessMove, i32) {
+fn iterative_deepening(board : &Board, cfg : &Cfg, tt : &mut TranspoTable) -> (ChessMove, i32) {
     let mut best_move : ChessMove = DUMMY_MOVE;
     let mut eval = 0;
 
@@ -68,7 +68,7 @@ fn iterative_deepening(board : &Board, cfg : &Cfg) -> (ChessMove, i32) {
         };
         let search_start_time = SystemTime::now();
         
-        let result = alphabeta(board, &alpha_beta_info, &mut pv_line);
+        let result = alphabeta(board, &alpha_beta_info, &mut pv_line, tt);
         
         let nodes = result.nodes;
         eval = result.eval;
@@ -96,7 +96,7 @@ fn iterative_deepening(board : &Board, cfg : &Cfg) -> (ChessMove, i32) {
     (best_move, eval)
 }
 
-fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Line) -> SearchResult {
+fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Line, tt : &mut TranspoTable) -> SearchResult {
     // Init variables
     let mut alpha = alpha_beta_info.alpha;
     let mut nodes = 0;
@@ -141,7 +141,7 @@ fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Li
 
         // test a move
         let new_board: Board = board.make_move_new(chess_move);
-        let inner_result = alphabeta(&new_board, &inner_ab_info, &mut line);
+        let inner_result = alphabeta(&new_board, &inner_ab_info, &mut line, tt);
         let score = -inner_result.eval;
         nodes += inner_result.nodes;
 

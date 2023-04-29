@@ -4,6 +4,7 @@ use std::io::{self, BufRead};
 use std::str::FromStr;
 use chess::Board;
 use crate::search;
+use crate::transpo;
 
 pub fn uci_loop () {
     let mut board = Board::default();
@@ -12,6 +13,8 @@ pub fn uci_loop () {
         for line in io::stdin().lock().lines() {
             let msg: UciMessage = vampirc_uci::parse_one(&line.unwrap());
             println!("Received message: {}", msg);
+
+            let mut tt = transpo::TranspoTable::new();
             match msg {
                 UciMessage::Quit => break 'outer,
                 UciMessage::Position { startpos, fen, moves } => {
@@ -35,7 +38,7 @@ pub fn uci_loop () {
                         let control = search_control.unwrap();
                         if control.depth.is_some() {
                             let cfg = search::get_default_cfg(control.depth.unwrap() as u32);
-                            let result = search::get_best_move(&board, &cfg);
+                            let result = search::get_best_move(&board, &cfg, &mut tt);
                             println!("bestmove {result}");
                         }
                     }
