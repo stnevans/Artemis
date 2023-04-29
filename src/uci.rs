@@ -39,7 +39,7 @@ pub fn uci_loop () {
                             println!("bestmove {result}");
                         }
                     }
-                }
+                },
 
                 _ => (),
             }

@@ -4,6 +4,20 @@ use chess::{Color, Board, Piece, BoardStatus};
 const NAIVE_PIECE_VAL : [i32; chess::NUM_PIECES] =  [100, 280, 320, 500, 900, i32::MAX];
 const ALL_PIECES : [Piece; chess::NUM_PIECES] = [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King];
 // const ALL_COLORS : [Color; chess::NUM_COLORS] = [Color::White, Color::Black];
+pub fn eval_is_mate(eval : i32) -> bool {
+    eval < i32::MIN + 1200 || eval > -(i32::MIN+1200) 
+}
+
+pub fn eval_distance_to_mate(eval : i32) -> i32 {
+    if eval < i32::MIN+1200 {
+		return (-eval+(i32::MIN+1000))/2;
+	}else if eval > -(i32::MIN+1200 ){
+		return (-eval-(i32::MIN+1000)+1)/2;
+	}
+    0
+}
+
+
 pub fn eval_no_ply(board : &Board) -> i32 {
     eval(board, 0)
 }

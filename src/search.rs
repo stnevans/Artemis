@@ -6,6 +6,8 @@ use chess::Square;
 use std::fmt::Debug;
 use std::time::{SystemTime};
 
+use crate::evaluation;
+
 
 const MIN_ALPHA : i32 = i32::MIN + 500;
 const MIN_BETA : i32 = i32::MAX - 500;
@@ -13,7 +15,7 @@ const DUMMY_MOVE : ChessMove = ChessMove {
         source: Square::A1,
         dest: Square::A1,
         promotion: None
-    };
+};
 
 pub struct Cfg {
     depth_left : u32,
@@ -82,7 +84,14 @@ fn iterative_deepening(board : &Board, cfg : &Cfg) -> (ChessMove, i32) {
         }
 
         let duration_millis = search_duration.as_millis();
-        println!("info depth {depth} score cp {eval} time {duration_millis} nodes {nodes} pv {pv_string}");
+        print!("info depth {depth} score ");
+        if evaluation::eval_is_mate(eval) {
+            print!("mate {} ", evaluation::eval_distance_to_mate(eval));
+        } else {
+            print!("cp {eval} ")
+        }
+        println!("time {duration_millis} nodes {nodes} pv {pv_string}");
+
     }
     (best_move, eval)
 }
@@ -95,23 +104,31 @@ fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Li
     let depth = alpha_beta_info.depth_left;
     let beta = alpha_beta_info.beta;
 
+    // Depth 0, quiesce
+    if depth <= 0 {
+        pv_line.cmove = 0;
+        let eval = quiesce(board, alpha_beta_info);
+        return SearchResult {
+            eval: eval,
+            nodes: 1
+        }
+    }
+
+    // Create our inner line, generate the moves
     let mut line: Line = Line {
         cmove : 0,
         chess_move : [DUMMY_MOVE; 100],
     };
 
-    // Depth 0, quiesce
-    if depth <= 0 {
+    // TODO Gen psuedo moves, check len(pseudo)
+    let moves = MoveGen::new_legal(&board);
+
+    // If there were no moves, that means it's draw or mate
+    if moves.len() == 0 {
         pv_line.cmove = 0;
-        
-        return SearchResult {
-            eval: quiesce(board, alpha_beta_info),
-            nodes: 1
-        }
+        alpha = evaluation::eval(board, alpha_beta_info.ply);
     }
 
-    let moves = MoveGen::new_legal(&board);
-    
     // Go through each move, internal alphabeta
     for chess_move in moves {
         let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
@@ -121,11 +138,13 @@ fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Li
             ply : alpha_beta_info.ply + 1,
         };
 
-        // make move
+
+        // test a move
         let new_board: Board = board.make_move_new(chess_move);
         let inner_result = alphabeta(&new_board, &inner_ab_info, &mut line);
         let score = -inner_result.eval;
         nodes += inner_result.nodes;
+
 
         // Score >= beta means refutation was found (i.e we know we worst case eval is -200. this move gives eval of > that)
         if score >= beta {
@@ -145,6 +164,7 @@ fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Li
             alpha = score;
         }
     }
+    
 
     SearchResult{
         eval : alpha,
@@ -156,16 +176,42 @@ fn alphabeta(board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Li
 fn quiesce(board : &Board, alpha_beta_info : &AlphabetaInfo) -> i32 {
     // Do our initial eval and check cutoffs
     let mut alpha = alpha_beta_info.alpha;
+    let beta = alpha_beta_info.beta;
     let eval = crate::evaluation::eval(board, alpha_beta_info.ply);
-    if eval >= alpha_beta_info.beta {
+    if eval >= beta {
         return alpha_beta_info.beta
     }
 
-    if eval < alpha {
+    if eval > alpha {        
         alpha = eval;
     }
 
-    // If we have any captures, redo quiesce search
+    // Do our captures and keep searching
+    // TODO BUG NO ENPASSANT IN THIS
+    let mut moves = MoveGen::new_legal(&board);
+    let targets = board.color_combined(!board.side_to_move());
+    moves.set_iterator_mask(*targets);
+    for capture in &mut moves {
+
+        let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
+            alpha : -beta,
+            beta : -alpha,
+            depth_left : 0,
+            ply : alpha_beta_info.ply + 1,
+        };
+
+
+        let new_board: Board = board.make_move_new(capture);
+        let score = -quiesce(&new_board, &inner_ab_info);
+
+        if score >= beta {
+            return beta;
+        }
+
+        if score > alpha {
+            alpha = score;
+        }
+    }
 
 
     alpha

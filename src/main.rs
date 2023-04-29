@@ -7,18 +7,36 @@ use chess::{Square, Board, ChessMove, Piece};
 mod uci;
 mod evaluation;
 mod search;
-
+mod transpo;
 use crate::search::get_best_move;
+use crate::evaluation::eval_no_ply;
 
 fn main() {
     println!("Hello, world!");
     tester();
     // demo_eval();
     // demo_search();
+    
+    // test_board(&board_from_fen("rnbqkbnr/pppp1ppp/8/4p3/5PP1/8/PPPPP2P/RNBQKBNR b KQkq - 0 1"));
     uci::uci_loop();
 }
 
 
+
+fn test_board(board : &Board) {
+    println!("Eval is {}", eval_no_ply(board));
+    print!("Moves are ");
+    let mut moves = MoveGen::new_legal(&board);
+    for chess_move in moves {
+        print!("{chess_move} ");
+    }
+    println!("");
+    for depth in 1..=2 {
+        let best_move: ChessMove = get_best_move(&board, &search::get_default_cfg(depth));
+        println!("Best Move should be d8h4: {best_move}");
+    }
+
+}
 
 fn tester() {
     // create a board with the initial position
