@@ -10,6 +10,9 @@ const DUMMY_MOVE : ChessMove = ChessMove {
 };
 const MAX_MOVES : usize = 255;
 
+pub struct MoveOrderer {
+    
+}
 
 pub struct MoveOrdering {
     moves : [ChessMove; MAX_MOVES],

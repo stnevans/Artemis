@@ -46,6 +46,7 @@ pub struct Search {
     is_following_pv : bool,
     in_null_move_prune : bool,
     nodes_evaled : u32,
+    past_end_time : bool,
 }
 impl Search {
     pub fn new() -> Search {
@@ -59,6 +60,7 @@ impl Search {
             is_following_pv : false,
             in_null_move_prune : false,
             nodes_evaled : 0,
+            past_end_time : false
         }
     }
 
@@ -211,7 +213,7 @@ impl Search {
             
             print!("info depth {depth} score ");
             if evaluation::eval_is_mate(eval) {
-                print!("mate {} ", evaluation::eval_distance_to_mate(eval));
+                print!("mate {} cp {eval}", evaluation::eval_distance_to_mate(eval));
             } else {
                 print!("cp {eval} ");
             }
@@ -267,6 +269,9 @@ impl Search {
                         if eval >= beta {
                             pv_line.cmove = 1;
                             pv_line.chess_move[0] = entry.best_move;
+                            if beta == 2147483147 {
+                                println!("{board} {eval} {beta} {}", entry.depth);
+                            }
                             return SearchResult {
                                 eval : beta
                             }
@@ -289,6 +294,7 @@ impl Search {
 
         // TODO try to avoid calling this on every single search
         if SystemTime::now() > self.end_time {
+            self.past_end_time = true;
             return SearchResult {
                 eval : i32::MIN+10,
             }
@@ -357,7 +363,9 @@ impl Search {
 
             // Score >= beta means refutation was found (i.e we know we worst case eval is -200. this move gives eval of > that)
             if score >= beta {
-                tt.save(board.get_hash(), beta, EntryFlags::Beta, chess_move, depth as u8, alpha_beta_info.ply as u8);
+                if !self.past_end_time {
+                    tt.save(board.get_hash(), beta, EntryFlags::Beta, chess_move, depth as u8, alpha_beta_info.ply as u8);
+                }
                 return SearchResult {
                     eval : beta,
                 }
