@@ -101,6 +101,19 @@ pub fn centralization_eval(board : &Board, total_material : i32) -> i32 {
     eval
 }
 
+pub fn total_material_eval(board : &Board) -> i32 {
+    let white_bb = board.color_combined(Color::White);
+    let black_bb = board.color_combined(Color::Black);
+
+    let mut material = 0;
+    for piece in ALL_PIECES_NO_KING {
+        let white_piece_bb = board.pieces(piece) & white_bb;
+        let black_piece_bb = board.pieces(piece) & black_bb;
+        material += NAIVE_PIECE_VAL[piece.to_index()] * (white_piece_bb.popcnt() as i32 + black_piece_bb.popcnt() as i32);
+    }
+    material
+}
+
 pub fn eval(board : &Board, ply : u32) -> i32{
     let mut eval : i32 = 0;
 

@@ -8,6 +8,7 @@ mod uci;
 mod evaluation;
 mod search;
 mod transpo;
+mod move_ordering;
 
 use crate::search::Search;
 use crate::transpo::TranspoTable;

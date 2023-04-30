@@ -2,10 +2,13 @@
 use chess::Board;
 use chess::MoveGen;
 use chess::ChessMove;
-use chess::Square;
-use std::time::{SystemTime};
-
+use chess::{Square, Color, EMPTY};
+use std::alloc::System;
+use std::time::{SystemTime, Duration};
+use vampirc_uci::{UciTimeControl, UciSearchControl};
 use crate::evaluation;
+use crate::move_ordering;
+use crate::move_ordering::MoveOrdering;
 use crate::transpo::{TranspoTable, EntryFlags};
 
 const MIN_ALPHA : i32 = i32::MIN + 500;
@@ -39,21 +42,86 @@ struct Line {
 
 pub struct Search {
     cfg : Cfg,
+    time_control : Option<UciTimeControl>,
+    search_control : Option<UciSearchControl>,
+    end_time : SystemTime,
+    is_following_pv : bool,
+    in_null_move_prune : bool,
 }
 impl Search {
     pub fn new() -> Search {
         Search {
             cfg : Cfg{
-                depth_left : 1,
-            }
+                depth_left : 0,
+            },
+            end_time : SystemTime::now() + Duration::new(i32::MAX as u64, 0),
+            time_control : None,
+            search_control : None,
+            is_following_pv : false,
+            in_null_move_prune : false,
         }
+    }
+
+    fn calculate_expected_ply(&self, board : &Board) -> u32 {
+        100
+    }
+
+    fn calculate_end_time(&mut self, board : &Board) {
+        if self.cfg.depth_left != 0 {
+            return
+        }
+        if self.time_control.is_some() {
+            let now = SystemTime::now();
+            let mut end_time = now + Duration::new(i32::MAX as u64, 0);
+            match self.time_control.as_ref().unwrap() {
+                UciTimeControl::MoveTime (duration) => {
+                    end_time = SystemTime::now() + duration.to_std().expect("Out of range");
+                },
+                UciTimeControl::Infinite => (),
+                UciTimeControl::TimeLeft { white_time, black_time, 
+                    white_increment, black_increment, moves_to_go } =>
+                    {
+                        let mut time_left = Duration::new(0, 0);
+                        match board.side_to_move() {
+                            Color::White => {
+                                if white_time.is_some() {
+                                    time_left = white_time.unwrap().to_std().expect("Out of range");
+                                }
+                            },
+                            Color::Black => {
+                                if black_time.is_some() {
+                                    time_left = black_time.unwrap().to_std().expect("Out of range");
+                                }
+                            },
+                        }
+                        let num_moves = self.calculate_expected_ply(board);
+                        let ply_num = 0;
+                        let moves_to_go = (num_moves - ply_num) / 2;
+                        let move_time = time_left/moves_to_go;
+                        println!("Calculated {} {moves_to_go}", move_time.as_millis());
+                        end_time = now + move_time;
+                   }
+                _ => ()
+            }
+            self.end_time = end_time;
+            self.cfg.depth_left = u32::MAX;
+        }
+    }
+
+    pub fn set_time_controls(&mut self, time_controls : UciTimeControl) {
+        self.time_control = Some(time_controls);
+    }
+    
+    pub fn set_search_controls(&mut self, search_controls : Option<UciSearchControl>) {
+        self.search_control = search_controls;
     }
 
     pub fn set_cfg_depth(&mut self, depth: u32){
         self.cfg.depth_left = depth;
     }
 
-    pub fn get_best_move(&mut self, board : &Board, tt : &mut TranspoTable) -> ChessMove {   
+    pub fn get_best_move(&mut self, board : &Board, tt : &mut TranspoTable) -> ChessMove {  
+        self.calculate_end_time(board);
         return self.iterative_deepening(board, tt).0;
     }
 
@@ -75,8 +143,12 @@ impl Search {
             };
             let search_start_time = SystemTime::now();
             
+            // At the start we follow the pv so we can display the whole thing 
+            self.is_following_pv = true;
             let result = self.alphabeta(board, &alpha_beta_info, &mut pv_line, tt);
-            
+            if SystemTime::now() > self.end_time {
+                break;
+            }
             let nodes = result.nodes;
             eval = result.eval;
 
@@ -91,6 +163,7 @@ impl Search {
             }
 
             let duration_millis = search_duration.as_millis();
+            
             print!("info depth {depth} score ");
             if evaluation::eval_is_mate(eval) {
                 print!("mate {} ", evaluation::eval_distance_to_mate(eval));
@@ -98,6 +171,7 @@ impl Search {
                 print!("cp {eval} ");
             }
             println!("time {duration_millis} nodes {nodes} pv {pv_string}");
+            
         }
         (best_move, eval)
     }
@@ -112,6 +186,8 @@ impl Search {
 
         // Depth 0, quiesce
         if depth <= 0 {
+            // As soon as we hit a leaf node, we can't be following the pv any more.
+            self.is_following_pv = false;
             pv_line.cmove = 0;
             let eval = self.quiesce(board, alpha_beta_info);
             return SearchResult {
@@ -148,6 +224,46 @@ impl Search {
             }
         }
 
+        // TODO try to avoid calling this on every single search
+        if SystemTime::now() > self.end_time {
+            return SearchResult {
+                eval : i32::MIN+10,
+                nodes : 0
+            }
+        }
+
+        // Try out null move pruning
+        if !self.in_null_move_prune {
+            if evaluation::total_material_eval(board) > 1000 { // Endgames can lead to zugzwang
+                if (*board.checkers()) == EMPTY {
+                    if depth > 3 {
+                        self.in_null_move_prune = true;
+                        let board_copy = board.clone();
+                        board_copy.null_move();
+                        let reduction_depth: i32 = depth / 4 + 3;
+                        let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
+                            alpha : -beta,
+                            beta : -alpha,
+                            depth_left : depth - reduction_depth,
+                            ply : alpha_beta_info.ply + 1,
+                        };
+                        let mut null_move_line: Line = Line {
+                            cmove : 0,
+                            chess_move : [DUMMY_MOVE; 100],
+                        };
+                        let result = self.alphabeta(&board_copy, &inner_ab_info, &mut null_move_line, tt);
+                        if -result.eval >= beta {
+                            return SearchResult {
+                                eval : beta,
+                                nodes : result.nodes
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.in_null_move_prune = false;
+
         // Create our inner line, generate the moves
         let mut line: Line = Line {
             cmove : 0,
@@ -155,17 +271,23 @@ impl Search {
         };
 
         // TODO Gen psuedo moves, check len(pseudo)
-        let moves = MoveGen::new_legal(&board);
+        let mut moves = MoveGen::new_legal(&board);
+        let mut move_ordering = MoveOrdering::from_moves(&mut moves);
 
         // If there were no moves, that means it's draw or mate
-        if moves.len() == 0 {
+        if move_ordering.len() == 0 {
             pv_line.cmove = 0;
             alpha = evaluation::eval(board, alpha_beta_info.ply);
         }
 
+
+        
+
         let mut num_alpha_hits = 0;
         // Go through each move, internal alphabeta
-        for chess_move in moves {
+        for i in 0..move_ordering.len() {
+            let chess_move = move_ordering.get_next_best_move(i, board, tt);
+            // let chess_move = moves
             let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
                 alpha : -beta,
                 beta : -alpha,

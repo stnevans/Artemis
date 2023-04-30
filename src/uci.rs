@@ -7,13 +7,15 @@ use chess::ChessMove;
 use crate::search::Search;
 use crate::transpo;
 use std::mem;
+const ARTEMIS_VERSION : &str = "1.0";
+
 pub fn uci_loop () {
     let mut board = Board::default();
     let mut tt = transpo::TranspoTable::new();
+    println!("Artemis {ARTEMIS_VERSION}");
     'outer: loop {
         for line in io::stdin().lock().lines() {
             let msg: UciMessage = vampirc_uci::parse_one(&line.unwrap());
-            println!("Received message: {}", msg);
 
             match msg {
                 UciMessage::Quit => break 'outer,
@@ -44,15 +46,27 @@ pub fn uci_loop () {
                     }
                     if time_control.is_some() {
                         let control = time_control.unwrap();
-
+                        search.set_time_controls(control);
                     }
                     let result = search.get_best_move(&board, &mut tt);
 
                     println!("bestmove {result}");
 
                 },
+                UciMessage::IsReady => {
+                    println!("readyok");
+                },
+                UciMessage::Uci => {
+                    println!("id name Artemis Release {ARTEMIS_VERSION}");
+                    println!("id author Stuart Nevans Locke");
+                    println!("option name Hash type spin default 32 min 1 max 1048576");
+                    println!("uciok");
+                },
+                UciMessage::UciNewGame => {
+                    board = Board::default();
+                },
 
-                _ => println!("{board}"),
+                _ => (),
             }
         }      
     }
