@@ -19,6 +19,7 @@ const DEFAULT_TABLE_ENTRY : TableEntry = TableEntry {
 
 const DEFAULT_TT_SIZE : u64 = 1048576 * 10;
 #[derive(Clone, Copy)]
+
 pub enum EntryFlags {
     Exact,
     Alpha,
@@ -58,7 +59,7 @@ impl TranspoTable {
     pub fn save(&mut self, key : u64, eval : i32, flags : EntryFlags, best_move : ChessMove, depth : u8, ply : u8) {
         let len = self.entrys.len();
         let mut entry = &mut self.entrys[(key % len as u64) as usize];
-        if depth > entry.depth {
+        if depth >= entry.depth {    
             entry.hash = key;
             if evaluation::eval_is_mate(eval) {
                 if eval < 0 {
