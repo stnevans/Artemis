@@ -2,16 +2,34 @@
 
 use chess::{ChessMove, Square, Board, MoveGen};
 
-use crate::transpo::TranspoTable;
+use crate::{transpo::TranspoTable, search::MAX_DEPTH};
 const DUMMY_MOVE : ChessMove = ChessMove {
     source: Square::A1,
     dest: Square::A1,
     promotion: None
 };
 const MAX_MOVES : usize = 255;
+const NUM_KILLER_MOVES : usize = 2;
+const KILLER_MOVE_VALUE : i32 = 400;
 
 pub struct MoveOrderer {
-    
+    killer_moves : [[ChessMove; NUM_KILLER_MOVES]; MAX_DEPTH as usize],
+
+}
+
+impl MoveOrderer {
+    pub fn new() -> MoveOrderer {
+        MoveOrderer {
+            killer_moves : [[DUMMY_MOVE; NUM_KILLER_MOVES]; MAX_DEPTH as usize],
+        }
+    }
+
+    pub fn update_killer_move(&mut self, depth : usize, killer_move : ChessMove) {
+        for i in (1..NUM_KILLER_MOVES).rev() {
+            self.killer_moves[depth][i] = self.killer_moves[depth][i-1];
+        }
+        self.killer_moves[depth][0] = killer_move;
+    }
 }
 
 pub struct MoveOrdering {
@@ -50,7 +68,12 @@ impl MoveOrdering {
         self.num_moves += 1;
     }
 
-    fn calculate_score(&self, chess_move : ChessMove, board : &Board) -> i32{
+    fn calculate_score(&self, chess_move : ChessMove, board : &Board, depth : usize, move_orderer : &MoveOrderer) -> i32{
+        for i in 0..NUM_KILLER_MOVES {
+            if move_orderer.killer_moves[depth][i] == chess_move {
+                return KILLER_MOVE_VALUE
+            }
+        }
         1
     }
 
@@ -64,7 +87,7 @@ impl MoveOrdering {
         self.moves[j] = temp;
     }
 
-    pub fn get_next_best_move(&mut self, moves_processed : usize, board : &Board, tt: &TranspoTable) -> ChessMove {
+    pub fn get_next_best_move(&mut self, moves_processed : usize, board : &Board, depth : usize, tt: &TranspoTable, move_orderer : &MoveOrderer) -> ChessMove {
         // If it's the first move for this board, check if we have it in the transpo table
         // If so, we want to return the best move we found before
         if moves_processed == 0 {
@@ -85,7 +108,7 @@ impl MoveOrdering {
         let mut max_score = i32::MIN;
         let mut best_idx = moves_processed;
         for i in moves_processed..self.num_moves {
-            let score = self.calculate_score(self.moves[i], board);
+            let score = self.calculate_score(self.moves[i], board, depth, move_orderer);
             self.move_scores[i] = score;
             if score > max_score {
                 max_score = score;

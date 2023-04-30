@@ -6,11 +6,12 @@ use chess::{Square, Color, EMPTY};
 use std::time::{SystemTime, Duration};
 use vampirc_uci::{UciTimeControl, UciSearchControl};
 use crate::evaluation;
-use crate::move_ordering::MoveOrdering;
+use crate::move_ordering::{MoveOrderer, MoveOrdering};
 use crate::transpo::{TranspoTable, EntryFlags};
 
 const MIN_ALPHA : i32 = i32::MIN + 500;
 const MAX_BETA : i32 = i32::MAX - 500;
+pub const MAX_DEPTH : u32 = 200;
 const DUMMY_MOVE : ChessMove = ChessMove {
         source: Square::A1,
         dest: Square::A1,
@@ -47,6 +48,7 @@ pub struct Search {
     in_null_move_prune : bool,
     nodes_evaled : u32,
     past_end_time : bool,
+    move_orderer : MoveOrderer,
 }
 impl Search {
     pub fn new() -> Search {
@@ -60,7 +62,8 @@ impl Search {
             is_following_pv : false,
             in_null_move_prune : false,
             nodes_evaled : 0,
-            past_end_time : false
+            past_end_time : false,
+            move_orderer : MoveOrderer::new(),
         }
     }
 
@@ -173,6 +176,9 @@ impl Search {
         let search_start_time: SystemTime = SystemTime::now();
 
         for depth in 1..=self.cfg.depth_left {
+            if depth > MAX_DEPTH {
+                break;
+            }
             let mut pv_line = Line {
                 cmove : 0,
                 chess_move : [DUMMY_MOVE; 100],
@@ -221,6 +227,7 @@ impl Search {
             println!("time {duration_millis} nodes {nodes} pv {pv_string}");
             
         }
+        self.past_end_time = false;
         (best_move, eval)
     }
 
@@ -269,9 +276,6 @@ impl Search {
                         if eval >= beta {
                             pv_line.cmove = 1;
                             pv_line.chess_move[0] = entry.best_move;
-                            if beta == 2147483147 {
-                                println!("{board} {eval} {beta} {}", entry.depth);
-                            }
                             return SearchResult {
                                 eval : beta
                             }
@@ -335,17 +339,17 @@ impl Search {
         let mut moves = MoveGen::new_legal(&board);
         let mut move_ordering = MoveOrdering::from_moves(&mut moves);
 
+
         // If there were no moves, that means it's draw or mate
         if move_ordering.len() == 0 {
             pv_line.cmove = 0;
             alpha = evaluation::eval(board, alpha_beta_info.ply);
         }
 
-
         let mut num_alpha_hits = 0;
         // Go through each move, internal alphabeta
         for i in 0..move_ordering.len() {
-            let chess_move = move_ordering.get_next_best_move(i, board, tt);
+            let chess_move = move_ordering.get_next_best_move(i, board, depth as usize, tt, &self.move_orderer);
             // let chess_move = moves
             let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
                 alpha : -beta,
@@ -365,6 +369,7 @@ impl Search {
             if score >= beta {
                 if !self.past_end_time {
                     tt.save(board.get_hash(), beta, EntryFlags::Beta, chess_move, depth as u8, alpha_beta_info.ply as u8);
+                    self.move_orderer.update_killer_move(depth as usize, chess_move);
                 }
                 return SearchResult {
                     eval : beta,
