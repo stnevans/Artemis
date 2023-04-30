@@ -1,12 +1,10 @@
-use vampirc_uci::parse;
-use vampirc_uci::{UciMessage, MessageList, UciTimeControl, Serializable};
+use vampirc_uci::{UciMessage};
 use std::io::{self, BufRead};
 use std::str::FromStr;
 use chess::Board;
-use chess::ChessMove;
 use crate::search::Search;
 use crate::transpo;
-use std::mem;
+
 const ARTEMIS_VERSION : &str = "1.0";
 
 pub fn uci_loop () {
@@ -18,6 +16,9 @@ pub fn uci_loop () {
             let msg: UciMessage = vampirc_uci::parse_one(&line.unwrap());
 
             match msg {
+                UciMessage::UciNewGame => {
+                    board = Board::default();
+                },
                 UciMessage::Quit => break 'outer,
                 UciMessage::Position { startpos, fen, moves } => {
                     if startpos {
@@ -32,9 +33,7 @@ pub fn uci_loop () {
                     }
 
                 },
-                UciMessage::UciNewGame => {
-                    board = Board::default();
-                },
+                
                 UciMessage::Go { time_control, search_control } => {
                     let mut search = Search::new();
 

@@ -1,5 +1,5 @@
 // Our transposition table
-use std::{mem, collections::btree_map::Entry};
+use std::{mem};
 use chess::{ChessMove, Square};
 use crate::evaluation;
 

@@ -3,22 +3,21 @@ use chess::Board;
 use chess::MoveGen;
 use chess::ChessMove;
 use chess::{Square, Color, EMPTY};
-use std::alloc::System;
 use std::time::{SystemTime, Duration};
 use vampirc_uci::{UciTimeControl, UciSearchControl};
 use crate::evaluation;
-use crate::move_ordering;
 use crate::move_ordering::MoveOrdering;
 use crate::transpo::{TranspoTable, EntryFlags};
 
 const MIN_ALPHA : i32 = i32::MIN + 500;
-const MIN_BETA : i32 = i32::MAX - 500;
+const MAX_BETA : i32 = i32::MAX - 500;
 const DUMMY_MOVE : ChessMove = ChessMove {
         source: Square::A1,
         dest: Square::A1,
         promotion: None
 };
 
+const NULL_MOVE_MIN_REDUCTION : i32 = 3;
 pub struct Cfg {
     depth_left : u32,
 }
@@ -31,7 +30,6 @@ struct AlphabetaInfo {
 }
 
 struct SearchResult {
-    nodes : u32,
     eval : i32,
 }
 
@@ -47,6 +45,7 @@ pub struct Search {
     end_time : SystemTime,
     is_following_pv : bool,
     in_null_move_prune : bool,
+    nodes_evaled : u32,
 }
 impl Search {
     pub fn new() -> Search {
@@ -59,6 +58,7 @@ impl Search {
             search_control : None,
             is_following_pv : false,
             in_null_move_prune : false,
+            nodes_evaled : 0,
         }
     }
 
@@ -120,14 +120,55 @@ impl Search {
         self.cfg.depth_left = depth;
     }
 
+    fn should_null_move_prune(&self, board : &Board, depth : i32) -> bool {
+        if !self.in_null_move_prune {
+            if evaluation::total_material_eval(board) > 1000 { // Endgames can lead to zugzwang
+                if (*board.checkers()) == EMPTY {
+                    if depth > NULL_MOVE_MIN_REDUCTION {
+                        return true
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub fn get_best_move(&mut self, board : &Board, tt : &mut TranspoTable) -> ChessMove {  
         self.calculate_end_time(board);
         return self.iterative_deepening(board, tt).0;
     }
 
+    fn aspirated_search(&mut self, board : &Board, last_eval : i32, depth : i32, pv_line : &mut Line ,tt : &mut TranspoTable) -> i32{
+        // For some reason this is not working at all :(
+        let window_radius = 50;
+        let aspirated_ab_info = AlphabetaInfo{
+            alpha : last_eval - window_radius,
+            beta : last_eval + window_radius,
+            depth_left : depth as i32,
+            ply : 0,
+        };
+        let windowed_eval = self.alphabeta(board, &aspirated_ab_info, pv_line, tt).eval;
+        let mut eval;
+        // Check if the search actually ran into one of our bounds. If so, re-search
+        if (windowed_eval <= last_eval - window_radius) || (windowed_eval >= last_eval + window_radius) {
+            println!("Re searching for {depth} {windowed_eval} {last_eval}");
+            let full_alpha_beta_range = AlphabetaInfo {
+                alpha : MIN_ALPHA,
+                beta : MAX_BETA,
+                depth_left : depth as i32,
+                ply : 0,
+            };
+            eval = self.alphabeta(board, &full_alpha_beta_range, pv_line, tt).eval;
+        } else {
+            eval = windowed_eval;
+        }
+        eval
+    }
+
     fn iterative_deepening(&mut self, board : &Board, tt : &mut TranspoTable) -> (ChessMove, i32) {
         let mut best_move : ChessMove = DUMMY_MOVE;
-        let mut eval = 0;
+        let mut eval: i32 = 0;
+        let search_start_time: SystemTime = SystemTime::now();
 
         for depth in 1..=self.cfg.depth_left {
             let mut pv_line = Line {
@@ -135,22 +176,26 @@ impl Search {
                 chess_move : [DUMMY_MOVE; 100],
             };
 
-            let alpha_beta_info = AlphabetaInfo {
+            let full_alpha_beta_range = AlphabetaInfo {
                 alpha : MIN_ALPHA,
-                beta : MIN_BETA,
+                beta : MAX_BETA,
                 depth_left : depth as i32,
                 ply : 0,
             };
-            let search_start_time = SystemTime::now();
             
             // At the start we follow the pv so we can display the whole thing 
             self.is_following_pv = true;
-            let result = self.alphabeta(board, &alpha_beta_info, &mut pv_line, tt);
+
+            // Aspiration window here
+            // if depth > 1 {
+            //     eval = self.aspirated_search(board, eval, depth as i32, &mut pv_line, tt);
+            // } else {
+            let result = self.alphabeta(board, &full_alpha_beta_range, &mut pv_line, tt);
+            eval = result.eval;
+            // }
             if SystemTime::now() > self.end_time {
                 break;
             }
-            let nodes = result.nodes;
-            eval = result.eval;
 
             let search_duration = search_start_time.elapsed().unwrap();
             best_move = pv_line.chess_move[0];
@@ -170,6 +215,7 @@ impl Search {
             } else {
                 print!("cp {eval} ");
             }
+            let nodes = self.nodes_evaled;
             println!("time {duration_millis} nodes {nodes} pv {pv_string}");
             
         }
@@ -179,7 +225,6 @@ impl Search {
     fn alphabeta(&mut self, board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Line, tt : &mut TranspoTable) -> SearchResult {
         // Init variables
         let mut alpha = alpha_beta_info.alpha;
-        let mut nodes = 0;
 
         let depth = alpha_beta_info.depth_left;
         let beta = alpha_beta_info.beta;
@@ -190,9 +235,9 @@ impl Search {
             self.is_following_pv = false;
             pv_line.cmove = 0;
             let eval = self.quiesce(board, alpha_beta_info);
+            self.nodes_evaled += 1;
             return SearchResult {
                 eval: eval,
-                nodes: 1
             }
         }
 
@@ -215,11 +260,29 @@ impl Search {
                         pv_line.chess_move[0] = entry.best_move;
                         return SearchResult {
                             eval : eval,
-                            nodes : 1
                         }
                     },
-                    EntryFlags::Beta => (),
-                    EntryFlags::Alpha => (),
+                    EntryFlags::Beta => {
+                        // In the past, this node caused a beta cutoff. Check if it would do the same here
+                        if eval >= beta {
+                            pv_line.cmove = 1;
+                            pv_line.chess_move[0] = entry.best_move;
+                            return SearchResult {
+                                eval : beta
+                            }
+                        }
+                    },
+                    EntryFlags::Alpha => {
+                        // In the past, we returned alpha for this node, meaning we couldn't beat the lower bound we used to have
+                        // Check if it is worse than our lower bound still
+                        if eval <= alpha {
+                            pv_line.cmove = 1;
+                            pv_line.chess_move[0] = entry.best_move;
+                            return SearchResult {
+                                eval : alpha
+                            }
+                        }
+                    },
                 }
             }
         }
@@ -228,37 +291,29 @@ impl Search {
         if SystemTime::now() > self.end_time {
             return SearchResult {
                 eval : i32::MIN+10,
-                nodes : 0
             }
         }
 
         // Try out null move pruning
-        if !self.in_null_move_prune {
-            if evaluation::total_material_eval(board) > 1000 { // Endgames can lead to zugzwang
-                if (*board.checkers()) == EMPTY {
-                    if depth > 3 {
-                        self.in_null_move_prune = true;
-                        let board_copy = board.clone();
-                        board_copy.null_move();
-                        let reduction_depth: i32 = depth / 4 + 3;
-                        let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
-                            alpha : -beta,
-                            beta : -alpha,
-                            depth_left : depth - reduction_depth,
-                            ply : alpha_beta_info.ply + 1,
-                        };
-                        let mut null_move_line: Line = Line {
-                            cmove : 0,
-                            chess_move : [DUMMY_MOVE; 100],
-                        };
-                        let result = self.alphabeta(&board_copy, &inner_ab_info, &mut null_move_line, tt);
-                        if -result.eval >= beta {
-                            return SearchResult {
-                                eval : beta,
-                                nodes : result.nodes
-                            }
-                        }
-                    }
+        if self.should_null_move_prune(board, depth) {
+            self.in_null_move_prune = true;
+            let board_copy = board.clone();
+            board_copy.null_move();
+            let reduction_depth: i32 = depth / 4 + NULL_MOVE_MIN_REDUCTION;
+            let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
+                alpha : -beta,
+                beta : -alpha,
+                depth_left : depth - reduction_depth,
+                ply : alpha_beta_info.ply + 1,
+            };
+            let mut null_move_line: Line = Line {
+                cmove : 0,
+                chess_move : [DUMMY_MOVE; 100],
+            };
+            let result = self.alphabeta(&board_copy, &inner_ab_info, &mut null_move_line, tt);
+            if -result.eval >= beta {
+                return SearchResult {
+                    eval : beta,
                 }
             }
         }
@@ -281,8 +336,6 @@ impl Search {
         }
 
 
-        
-
         let mut num_alpha_hits = 0;
         // Go through each move, internal alphabeta
         for i in 0..move_ordering.len() {
@@ -300,7 +353,6 @@ impl Search {
             let new_board: Board = board.make_move_new(chess_move);
             let inner_result = self.alphabeta(&new_board, &inner_ab_info, &mut line, tt);
             let score = -inner_result.eval;
-            nodes += inner_result.nodes;
 
 
             // Score >= beta means refutation was found (i.e we know we worst case eval is -200. this move gives eval of > that)
@@ -308,7 +360,6 @@ impl Search {
                 tt.save(board.get_hash(), beta, EntryFlags::Beta, chess_move, depth as u8, alpha_beta_info.ply as u8);
                 return SearchResult {
                     eval : beta,
-                    nodes: nodes
                 }
             }
 
@@ -330,14 +381,13 @@ impl Search {
         
             tt.save(board.get_hash(), alpha, EntryFlags::Exact, pv_line.chess_move[0], depth as u8, alpha_beta_info.ply as u8);
         } else {
-            // We got an alpha lower bound. This means every child had a beta cutoff
-            // So the pv_line is not updated
-            // tt.save(board.get_hash(), alpha, EntryFlags::Alpha, pv_line.chess_move[0], depth as u8, alpha_beta_info.ply as u8);
+            // We got an alpha lower bound. This means none of the moves were better than the lower bound.
+            // Call the pv move the best
+            tt.save(board.get_hash(), alpha, EntryFlags::Alpha, move_ordering.get(0), depth as u8, alpha_beta_info.ply as u8);
         }
 
         SearchResult{
             eval : alpha,
-            nodes : nodes,
         }
     }
 

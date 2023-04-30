@@ -51,23 +51,8 @@ impl MoveOrdering {
         1
     }
 
-    pub fn order_moves(&mut self, moves_processed : usize, board : &Board) {
-        let mut max_score = i32::MIN;
-        let mut best_move = DUMMY_MOVE;
-        for i in moves_processed..self.num_moves {
-            let score = self.calculate_score(self.moves[i], board);
-            self.move_scores[i] = score;
-            if score > max_score {
-                max_score = score;
-                best_move = self.moves[i];
-            }
-
-            
-        }
-    }
-
-    pub fn get(&self, idx : usize) -> &ChessMove {
-        &self.moves[idx]
+    pub fn get(&self, idx : usize) -> ChessMove {
+        self.moves[idx]
     }
 
     fn swap_moves(&mut self, i : usize, j : usize) {
