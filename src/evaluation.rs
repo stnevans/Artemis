@@ -5,14 +5,15 @@ use crate::bb_utils::BitBoardUtils;
 pub const NAIVE_PIECE_VAL : [i32; chess::NUM_PIECES] =  [100, 290, 310, 500, 900, i32::MAX];
 const ALL_PIECES : [Piece; chess::NUM_PIECES] = [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King];
 const ALL_PIECES_NO_KING : [Piece; chess::NUM_PIECES-1] = [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen];
-const DOUBLE_PAWN_PENALTY : i32 = 20;
+const DOUBLE_PAWN_PENALTY : i32 = 30;
 const ISOLATED_PAWN_PENALTY : i32 = 15;
 const PASSED_PAWN_BONUS : i32 = 25;
 const TEMPO_VALUE : i32 = 5;
 const PAWN_PROTECTOR_BONUS : i32 = 6;
 const PAWN_SECOND_PROTECTOR_BONUS : i32 = 4;
 const KING_ON_SEMI_OPEN : i32 = 7;
-
+const OPEN_FILE_BONUS : i32 = 20;
+const SEMI_OPEN_FILE_BONUS : i32 = 10;
 
 
 const PAWN_CENTRALIZATION_MIDGAME : [i32; 64] = 
@@ -302,6 +303,41 @@ impl Evaluator {
         eval
     }
 
+    fn get_files_eval(&self, board : &Board) -> i32 {
+        let white_bb = board.color_combined(Color::White);
+        let black_bb = board.color_combined(Color::Black);
+        let white_rooks = white_bb & board.pieces(Piece::Rook);
+        let black_rooks = black_bb & board.pieces(Piece::Rook);
+        let white_queens = white_bb & board.pieces(Piece::Queen);
+        let black_queens = black_bb & board.pieces(Piece::Queen);
+        let white_pawns = white_bb & board.pieces(Piece::Pawn);
+        let black_pawns = black_bb & board.pieces(Piece::Pawn);
+
+        let mut eval = 0;
+
+        for file in ALL_FILES {
+            if ((white_queens | white_rooks) & self.bb_utils.file_mask(file)) != EMPTY {
+                if white_pawns & self.bb_utils.file_mask(file) == EMPTY {
+                    if black_pawns & self.bb_utils.file_mask(file) == EMPTY {
+                        eval += OPEN_FILE_BONUS;
+                    } else{
+                        eval += SEMI_OPEN_FILE_BONUS;
+                    }
+                }
+            }
+            if ((black_queens | black_rooks) & self.bb_utils.file_mask(file)) != EMPTY {
+                if black_pawns & self.bb_utils.file_mask(file) == EMPTY {
+                    if white_pawns & self.bb_utils.file_mask(file) == EMPTY {
+                        eval -= OPEN_FILE_BONUS;
+                    } else{
+                        eval -= SEMI_OPEN_FILE_BONUS;
+                    }
+                }
+            }
+        }
+        eval
+    }
+
     pub fn eval(&self, board : &Board, ply : u32) -> i32 {
         let mut eval : i32 = 0;
 
@@ -332,6 +368,7 @@ impl Evaluator {
         eval += self.get_doubled_pawn_eval(board);
         eval += self.get_isolated_pawn_eval(board);
         eval += self.get_passed_pawn_eval(board);
+        eval += self.get_files_eval(board);
 
         if total_material > 1600 {
             eval += self.get_king_safety(board);
