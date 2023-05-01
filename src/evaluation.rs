@@ -2,7 +2,7 @@ use chess::{Color, Board, Piece, BoardStatus, NUM_PIECES, BitBoard, File, EMPTY,
 
 use crate::bb_utils::BitBoardUtils;
 
-const NAIVE_PIECE_VAL : [i32; chess::NUM_PIECES] =  [100, 290, 310, 500, 900, i32::MAX];
+pub const NAIVE_PIECE_VAL : [i32; chess::NUM_PIECES] =  [100, 290, 310, 500, 900, i32::MAX];
 const ALL_PIECES : [Piece; chess::NUM_PIECES] = [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King];
 const ALL_PIECES_NO_KING : [Piece; chess::NUM_PIECES-1] = [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen];
 const DOUBLE_PAWN_PENALTY : i32 = 20;

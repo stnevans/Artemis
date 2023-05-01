@@ -5,7 +5,7 @@ use chess::{Square, Color, EMPTY};
 use std::time::{SystemTime, Duration};
 use vampirc_uci::{UciTimeControl, UciSearchControl};
 use crate::bb_utils::BitBoardUtils;
-use crate::evaluation::Evaluator;
+use crate::evaluation::{Evaluator, NAIVE_PIECE_VAL};
 use crate::move_ordering::{MoveOrderer, MoveOrdering};
 use crate::transpo::{TranspoTable, EntryFlags};
 
@@ -21,6 +21,7 @@ const FUTILITY_PRUNE_DEPTH : i32 = 3;
 const FUTILITY_VALUES : [i32; (FUTILITY_PRUNE_DEPTH+1) as usize] = [0, 200, 300, 500];
 
 const NULL_MOVE_MIN_REDUCTION : i32 = 3;
+const DELTA_PRUNE_MAX : i32 = 900;
 pub struct Cfg {
     depth_left : u32,
 }
@@ -232,8 +233,6 @@ impl Search {
                 pv_string.push_str(" ");
             }
 
-            let duration_millis = search_duration.as_millis();
-            
             print!("info depth {depth} score ");
             if self.evaluator.eval_is_mate(eval) {
                 print!("mate {} ", self.evaluator.eval_distance_to_mate(eval));
@@ -241,7 +240,12 @@ impl Search {
                 print!("cp {eval} ");
             }
             let nodes = self.nodes_evaled;
-            println!("time {duration_millis} nodes {nodes} pv {pv_string} nps {}", (nodes as f64 / (duration_millis as f64 / 1000.0)));
+            let duration_millis = u128::max(search_duration.as_millis(), 1);
+            
+
+            let nps = (nodes as f64 / (duration_millis as f64 / 1000.0)) as u64;
+
+            println!("time {duration_millis} nodes {nodes} pv {pv_string} nps {nps}");
             
         }
         self.past_end_time = false;
@@ -291,6 +295,16 @@ impl Search {
         position_eval + FUTILITY_VALUES[depth as usize] < alpha        
     }
 
+    fn should_delta_prune(&self, board : &Board, eval : i32, total_material : i32, capture : ChessMove, alpha : i32) -> bool {
+        if total_material > 1600 {
+            let captured_piece = board.piece_on(capture.get_dest()).unwrap();
+            if eval + NAIVE_PIECE_VAL[captured_piece.to_index()] < alpha {
+                return true
+            }
+        }
+        false
+    }
+
     fn alphabeta(&mut self, board : &Board, alpha_beta_info : &AlphabetaInfo, pv_line : &mut Line, tt : &mut TranspoTable) -> SearchResult {
         // Init variables
         let mut alpha = alpha_beta_info.alpha;
@@ -303,9 +317,7 @@ impl Search {
             // As soon as we hit a leaf node, we can't be following the pv any more.
             self.is_following_pv = false;
             pv_line.cmove = 0;
-            // let eval = self.evaluator.eval(board, alpha_beta_info.ply);
 
-            // TODO currently too slow to be used
             let eval = self.quiesce(board, alpha_beta_info, tt);
             self.nodes_evaled += 1;
             return SearchResult {
@@ -493,13 +505,18 @@ impl Search {
         // Do our initial eval and check cutoffs
         let mut alpha = alpha_beta_info.alpha;
         let beta = alpha_beta_info.beta;
-        let eval = self.evaluator.eval(board, alpha_beta_info.ply);
-        if eval >= beta {
+        let initial_eval = self.evaluator.eval(board, alpha_beta_info.ply);
+        if initial_eval >= beta {
             return alpha_beta_info.beta
         }
 
-        if eval > alpha {        
-            alpha = eval;
+        // Do initial delta pruning
+        if initial_eval + DELTA_PRUNE_MAX < alpha {
+            return alpha;
+        }
+
+        if initial_eval > alpha {        
+            alpha = initial_eval;
         }
 
         // Do our captures and keep searching
@@ -509,10 +526,14 @@ impl Search {
         moves.set_iterator_mask(*targets);
 
         let mut move_ordering = MoveOrdering::from_moves(&mut moves);
+        let total_material = self.evaluator.total_material_eval(board);
 
         for i in 0..move_ordering.len() {
             let capture = move_ordering.get_next_best_move(i, board, 0, tt, &self.move_orderer, alpha_beta_info.last_move);
 
+            if self.should_delta_prune(board, initial_eval, total_material, capture, alpha) {
+                continue;
+            }
             let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
                 alpha : -beta,
                 beta : -alpha,
