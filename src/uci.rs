@@ -4,9 +4,8 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use chess::{Board, MoveGen};
 use crate::evaluation::Evaluator;
-use crate::search::{Search, DUMMY_MOVE};
-use crate::transpo::{self, TranspoTable};
-use crate::move_ordering::{MoveOrdering, MoveOrderer};
+use crate::search::{Search};
+use crate::transpo;
 
 const ARTEMIS_VERSION : &str = "1.0";
 
@@ -77,9 +76,6 @@ pub fn uci_loop () {
         }      
     }
 }
-const MIN_ALPHA : i32 = i32::MIN + 500;
-const MAX_BETA : i32 = i32::MAX - 500;
-
 
 fn perft(board : &Board, depth : i32) {
     println!("perft");
@@ -89,10 +85,9 @@ fn perft(board : &Board, depth : i32) {
     let start = SystemTime::now();
     for chess_move in iterable {
         let board_copy = board.make_move_new(chess_move);
-        let mut temp = Temp::new();
-        let num = -temp.alphabeta(&board_copy, depth - 1, MIN_ALPHA, MAX_BETA);
-        println!("{chess_move} {}  = {num}", temp.nodes);
-        total += temp.nodes;
+        let num = perft_internal(&board_copy, depth - 1);
+        println!("{chess_move} {num}", );
+        total += num;
     }
     let duration = SystemTime::now().duration_since(start).expect("Error");
 
@@ -114,103 +109,4 @@ fn perft_internal(board : &Board, depth : i32) -> i32 {
         total += num;
     }
     total
-}
-struct Temp {
-    nodes : u32,
-    move_orderer : MoveOrderer,
-    tt: TranspoTable,
-}
-impl Temp {
-    fn new() -> Temp {
-        Temp {
-            nodes : 0,
-            move_orderer : MoveOrderer::new(),
-            tt : TranspoTable::new(),
-        }
-    }
-
-    fn alphabeta(&mut self, board : &Board, depth : i32, mut alpha : i32, beta : i32) -> i32 {
-        // Depth 0, quiesce
-        if depth <= 0 {
-            self.nodes += 1;
-            let eval = self.quiesce(board, -beta, -alpha);
-            // let eval = Evaluator::new().eval(board,0);;
-            return eval;
-        }
-
-        // TODO Gen psuedo moves, check len(pseudo)
-        let moves = MoveGen::new_legal(&board);
-
-        // If there were no moves, that means it's draw or mate
-        if moves.len() == 0 {
-            return Evaluator::new().eval(board,0);
-        }
-
-        // Go through each move, internal alphabeta
-        for chess_move in moves {
-
-
-            // test a move
-            let new_board: Board = board.make_move_new(chess_move);
-            let inner_result = self.alphabeta(&new_board, depth - 1, -beta, -alpha,);
-            let score = -inner_result;
-
-
-            // Score >= beta means refutation was found (i.e we know we worst case eval is -200. this move gives eval of > that)
-            if score >= beta {
-                return beta;
-            }
-
-            // Score > alpha means we have a new best move
-            if score > alpha {
-                
-                alpha = score;
-            }
-        }
-        
-
-        alpha
-    }
-
-
-    fn quiesce(&mut self, board : &Board, mut alpha : i32, beta : i32) -> i32 {
-
-        // Do our initial eval and check cutoffs
-        let eval = Evaluator::new().eval(board, 0);
-        if eval >= beta {
-            return beta
-        }
-
-        if eval > alpha {        
-            alpha = eval;
-        }
-
-        // Do our captures and keep searching
-        // TODO BUG NO ENPASSANT IN THIS
-        let mut moves = MoveGen::new_legal(&board);
-        let targets = board.color_combined(!board.side_to_move());
-
-        moves.set_iterator_mask(*targets);
-
-        let mut move_ordering = MoveOrdering::from_moves(&mut moves);
-
-        for i in 0..move_ordering.len() {
-            let capture = move_ordering.get_next_best_move(i, board, 0, &self.tt, &self.move_orderer, DUMMY_MOVE);
-            // println!("Considering {capture} on {board}");
-
-
-            let new_board: Board = board.make_move_new(capture);
-            let score = -self.quiesce(&new_board, -beta, -alpha);
-
-            if score >= beta {
-                return beta;
-            }
-
-            if score > alpha {
-                alpha = score;
-            }
-        }
-
-        alpha
-    }
 }
