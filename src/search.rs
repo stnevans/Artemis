@@ -6,6 +6,7 @@ use chess::{Square, Color, EMPTY};
 use std::time::{SystemTime, Duration};
 use vampirc_uci::{UciTimeControl, UciSearchControl};
 use crate::evaluation;
+use crate::evaluation::Evaluator;
 use crate::move_ordering::{MoveOrderer, MoveOrdering};
 use crate::transpo::{TranspoTable, EntryFlags};
 
@@ -49,6 +50,7 @@ pub struct Search {
     nodes_evaled : u32,
     past_end_time : bool,
     move_orderer : MoveOrderer,
+    evaluator : Evaluator,
 }
 impl Search {
     pub fn new() -> Search {
@@ -64,6 +66,7 @@ impl Search {
             nodes_evaled : 0,
             past_end_time : false,
             move_orderer : MoveOrderer::new(),
+            evaluator : Evaluator::new()
         }
     }
 
@@ -103,7 +106,6 @@ impl Search {
                         let ply_num = 0;
                         let moves_to_go = (num_moves - ply_num) / 2;
                         let move_time = time_left/moves_to_go;
-                        println!("Calculated {} {moves_to_go}", move_time.as_millis());
                         end_time = now + move_time;
                    }
                 _ => ()
@@ -127,7 +129,7 @@ impl Search {
 
     fn should_null_move_prune(&self, board : &Board, depth : i32) -> bool {
         if !self.in_null_move_prune {
-            if evaluation::total_material_eval(board) > 1000 { // Endgames can lead to zugzwang
+            if self.evaluator.total_material_eval(board) > 1000 { // Endgames can lead to zugzwang
                 if (*board.checkers()) == EMPTY {
                     if depth > NULL_MOVE_MIN_REDUCTION {
                         return true
@@ -218,8 +220,8 @@ impl Search {
             let duration_millis = search_duration.as_millis();
             
             print!("info depth {depth} score ");
-            if evaluation::eval_is_mate(eval) {
-                print!("mate {} cp {eval}", evaluation::eval_distance_to_mate(eval));
+            if self.evaluator.eval_is_mate(eval) {
+                print!("mate {} ", self.evaluator.eval_distance_to_mate(eval));
             } else {
                 print!("cp {eval} ");
             }
@@ -255,10 +257,10 @@ impl Search {
         if entry.hash == board.get_hash() {
             if entry.depth as i32 >= depth {
                 let mut eval = entry.eval;
-                if evaluation::eval_is_mate(eval) {
+                if self.evaluator.eval_is_mate(eval) {
                     if eval < 0 {
                         eval += alpha_beta_info.ply as i32;
-                    } else{
+                    } else {
                         eval -= alpha_beta_info.ply as i32;
                     }
                 }
@@ -307,8 +309,7 @@ impl Search {
         // Try out null move pruning
         if self.should_null_move_prune(board, depth) {
             self.in_null_move_prune = true;
-            let board_copy = board.clone();
-            board_copy.null_move();
+            let board_copy = board.null_move().unwrap();
             let reduction_depth: i32 = depth / 4 + NULL_MOVE_MIN_REDUCTION;
             let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
                 alpha : -beta,
@@ -320,8 +321,10 @@ impl Search {
                 cmove : 0,
                 chess_move : [DUMMY_MOVE; 100],
             };
+
             let result = self.alphabeta(&board_copy, &inner_ab_info, &mut null_move_line, tt);
-            if -result.eval >= beta {
+            let eval = -result.eval;
+            if eval >= beta {
                 return SearchResult {
                     eval : beta,
                 }
@@ -339,16 +342,16 @@ impl Search {
         let mut moves = MoveGen::new_legal(&board);
         let mut move_ordering = MoveOrdering::from_moves(&mut moves);
 
-
         // If there were no moves, that means it's draw or mate
         if move_ordering.len() == 0 {
             pv_line.cmove = 0;
-            alpha = evaluation::eval(board, alpha_beta_info.ply);
+            alpha = self.evaluator.eval(board, alpha_beta_info.ply);
         }
 
         let mut num_alpha_hits = 0;
         // Go through each move, internal alphabeta
         for i in 0..move_ordering.len() {
+            
             let chess_move = move_ordering.get_next_best_move(i, board, depth as usize, tt, &self.move_orderer);
             // let chess_move = moves
             let inner_ab_info: AlphabetaInfo = AlphabetaInfo {
@@ -363,7 +366,6 @@ impl Search {
             let new_board: Board = board.make_move_new(chess_move);
             let inner_result = self.alphabeta(&new_board, &inner_ab_info, &mut line, tt);
             let score = -inner_result.eval;
-
 
             // Score >= beta means refutation was found (i.e we know we worst case eval is -200. this move gives eval of > that)
             if score >= beta {
@@ -391,7 +393,6 @@ impl Search {
         
         if num_alpha_hits != 0 {
             // We got the exact eval for the position, not just an alpha lower bound
-        
             tt.save(board.get_hash(), alpha, EntryFlags::Exact, pv_line.chess_move[0], depth as u8, alpha_beta_info.ply as u8);
         } else {
             // We got an alpha lower bound. This means none of the moves were better than the lower bound.
@@ -406,10 +407,11 @@ impl Search {
 
 
     fn quiesce(&mut self, board : &Board, alpha_beta_info : &AlphabetaInfo) -> i32 {
+
         // Do our initial eval and check cutoffs
         let mut alpha = alpha_beta_info.alpha;
         let beta = alpha_beta_info.beta;
-        let eval = crate::evaluation::eval(board, alpha_beta_info.ply);
+        let eval = self.evaluator.eval(board, alpha_beta_info.ply);
         if eval >= beta {
             return alpha_beta_info.beta
         }
@@ -444,7 +446,6 @@ impl Search {
                 alpha = score;
             }
         }
-
 
         alpha
     }

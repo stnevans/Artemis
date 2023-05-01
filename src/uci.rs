@@ -58,7 +58,7 @@ pub fn uci_loop () {
                 UciMessage::Uci => {
                     println!("id name Artemis Release {ARTEMIS_VERSION}");
                     println!("id author Stuart Nevans Locke");
-                    println!("option name Hash type spin default 32 min 1 max 1048576");
+                    // println!("option name Hash type spin default 32 min 1 max 1048576");
                     println!("uciok");
                 },
                 UciMessage::UciNewGame => {

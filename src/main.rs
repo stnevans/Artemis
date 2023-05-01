@@ -9,6 +9,7 @@ mod evaluation;
 mod search;
 mod transpo;
 mod move_ordering;
+mod bb_utils;
 
 use crate::search::Search;
 use crate::transpo::TranspoTable;
@@ -24,7 +25,6 @@ fn main() {
 
 
 fn test_board(board : &Board) {
-    println!("Eval is {}", evaluation::eval_no_ply(board));
     print!("Moves are ");
     let mut moves = MoveGen::new_legal(&board);
     for chess_move in moves {
@@ -84,16 +84,16 @@ fn board_from_fen(fen : &str) -> Board {
     Board::from_fen(fen.to_string()).expect("Bad fen")
 }
 
-fn demo_eval () {
-    let board = board_from_fen("1k6/6p1/8/8/8/3P4/8/1K6 w - - 0 1");
-    println!("Eval(P vs P)={}", crate::evaluation::eval_no_ply(&board));
-    let board = board_from_fen("1k6/6p1/8/8/8/3PP3/8/1K6 w - - 0 1");
-    println!("Eval(PP vs P)={}", crate::evaluation::eval_no_ply(&board));
-    let board = board_from_fen("1k6/5n2/8/8/8/3P4/8/1K6 w - - 0 1");
-    println!("Eval(P vs N)={}", crate::evaluation::eval_no_ply(&board));
-    let board = board_from_fen("1k6/1b3n2/5K2/8/8/3P4/2R5/8 w - - 0 1");
-    println!("Eval(P R vs N B)={}", crate::evaluation::eval_no_ply(&board));
-}
+// fn demo_eval () {
+//     let board = board_from_fen("1k6/6p1/8/8/8/3P4/8/1K6 w - - 0 1");
+//     println!("Eval(P vs P)={}", crate::evaluation::eval_no_ply(&board));
+//     let board = board_from_fen("1k6/6p1/8/8/8/3PP3/8/1K6 w - - 0 1");
+//     println!("Eval(PP vs P)={}", crate::evaluation::eval_no_ply(&board));
+//     let board = board_from_fen("1k6/5n2/8/8/8/3P4/8/1K6 w - - 0 1");
+//     println!("Eval(P vs N)={}", crate::evaluation::eval_no_ply(&board));
+//     let board = board_from_fen("1k6/1b3n2/5K2/8/8/3P4/2R5/8 w - - 0 1");
+//     println!("Eval(P R vs N B)={}", crate::evaluation::eval_no_ply(&board));
+// }
 
 fn  demo_search () {
     let board: Board = board_from_fen("8/4P3/8/8/8/8/8/1k1K4 w - - 0 1"); // Next move queen
