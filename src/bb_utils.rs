@@ -1,5 +1,5 @@
 
-use chess::{BitBoard, EMPTY};
+use chess::{BitBoard, EMPTY, File};
 
 pub struct BitBoardUtils {
     pub file_mask : [BitBoard; 8],
@@ -14,6 +14,10 @@ impl BitBoardUtils {
 
     fn get_rank(&self, loc : usize) -> usize {
         loc / 8
+    }
+
+    pub fn file_mask(&self, file : File) -> BitBoard {
+        self.file_mask[file.to_index()]
     }
 
     pub fn new() -> BitBoardUtils {

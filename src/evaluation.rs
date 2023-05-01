@@ -1,4 +1,3 @@
-
 use chess::{Color, Board, Piece, BoardStatus, NUM_PIECES, BitBoard, File, EMPTY, ALL_FILES};
 
 use crate::bb_utils::BitBoardUtils;
@@ -12,6 +11,7 @@ const PASSED_PAWN_BONUS : i32 = 25;
 const TEMPO_VALUE : i32 = 5;
 const PAWN_PROTECTOR_BONUS : i32 = 6;
 const PAWN_SECOND_PROTECTOR_BONUS : i32 = 4;
+const KING_ON_SEMI_OPEN : i32 = 7;
 
 
 
@@ -54,11 +54,47 @@ const KING_CENTRALIZATION_MIDGAME : [i32; 64] =
      0,  0,  0,  0,  0,  0,  0,  0,  
      0,  0,  0,  0,  0,  0,  0,  0,  
     ];
+
+
 const ALL_CENTRALIZATION_MIDGAME : [[i32 ; 64]; NUM_PIECES] =
     [PAWN_CENTRALIZATION_MIDGAME, KNIGHT_CENTRALIZATION_MIDGAME, SLIDER_CENTRALIZATION_MIDGAME, SLIDER_CENTRALIZATION_MIDGAME, SLIDER_CENTRALIZATION_MIDGAME, KING_CENTRALIZATION_MIDGAME];
+const SLIDER_CENTRALIZATION_ENDGAME : [i32; 64] = SLIDER_CENTRALIZATION_MIDGAME;
+const KING_CENTRALIZATION_ENDGAME : [i32; 64] = 
+    [0,  0,  0,  0,  0,  0,  0,  0,  
+     0,  0,  0,  0,  0,  0,  0,  0,  
+     0,  0,  8, 10, 10,  8,  0,  0,  
+     0,  0,  10, 16, 16, 10, 0,  0,  
+     0,  0,  10, 16, 16, 10, 0,  0,  
+     0,  0,  8,  10, 10,  8, 0,  0,  
+     0,  0,  0,  0,  0,  0,  0,  0,  
+     0,  0,  0,  0,  0,  0,  0,  0,  
+    ];
+
+const WHITE_PAWN_POSITION_ENDGAME : [i32; 64] = 
+    [0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,
+    0,0,0,20,20,0,0,0,
+    5,5,10,25,25,10,5,5,
+    10,10,20,30,30,20,10,10,
+    15,15,20,20,20,20,15,25,
+    50,50,50,50,50,50,50,50,
+    0,0,0,0,0,0,0,0];
+const BLACK_PAWN_POSITION_ENDGAME : [i32; 64] =
+    [0,0,0,0,0,0,0,0,
+    50,50,50,50,50,50,50,50,
+    15,15,20,20,20,20,15,25,
+    10,10,20,30,30,20,10,10,
+    5,5,10,25,25,10,5,5,
+    0,0,0,20,20,0,0,0,
+    0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0];
+
+const ALL_WHITE_POSITION_ENDGAME : [[i32 ; 64]; NUM_PIECES] =
+    [WHITE_PAWN_POSITION_ENDGAME, KNIGHT_CENTRALIZATION_MIDGAME, SLIDER_CENTRALIZATION_ENDGAME, SLIDER_CENTRALIZATION_ENDGAME, SLIDER_CENTRALIZATION_ENDGAME, KING_CENTRALIZATION_ENDGAME];
+const ALL_BLACK_POSITION_ENDGAME : [[i32 ; 64]; NUM_PIECES] =
+    [BLACK_PAWN_POSITION_ENDGAME, KNIGHT_CENTRALIZATION_MIDGAME, SLIDER_CENTRALIZATION_ENDGAME, SLIDER_CENTRALIZATION_ENDGAME, SLIDER_CENTRALIZATION_ENDGAME, KING_CENTRALIZATION_ENDGAME];
 
 const MIDDLE_FILES : [File; 6] = [File::B, File::C, File::D, File::E, File::F, File::G];
-const EDGE_FILES : [File; 2] = [File::A, File::H];
 
 pub fn eval_is_mate(eval : i32) -> bool {
     eval < i32::MIN + 1200 || eval > -(i32::MIN+1200) 
@@ -89,12 +125,7 @@ impl Evaluator {
         0
     }
 
-
-    pub fn eval_no_ply(&self, board : &Board) -> i32 {
-        self.eval(board, 0)
-    }
-
-    fn centralization_midgame(&self, bit_board : BitBoard, piece : Piece) -> i32{
+    fn centralization_midgame(&self, bit_board : BitBoard, piece : Piece, _color : Color) -> i32 {
         let mut eval = 0;
         let mut bb = bit_board;
         while bb.0 != 0 {
@@ -107,22 +138,41 @@ impl Evaluator {
         eval
     }
 
+    fn position_endgame(&self, bit_board : BitBoard, piece : Piece, color : Color) -> i32 {
+        let mut eval = 0;
+        let mut bb = bit_board;
+        let endgame_arr;
+        match color {
+            Color::White => endgame_arr = ALL_WHITE_POSITION_ENDGAME,
+            Color::Black => endgame_arr = ALL_BLACK_POSITION_ENDGAME,
+        }
+
+        while bb.0 != 0 {
+            let loc = bb.0.trailing_zeros();
+            eval += endgame_arr[piece.to_index()][loc as usize];
+            let mut pos : u64 = 1;
+            pos = pos << loc;
+            bb ^= BitBoard(pos);
+        }
+        eval
+    }
+
     pub fn centralization_eval(&self, board : &Board, total_material : i32) -> i32 {
         let white_bb = board.color_combined(Color::White);
         let black_bb = board.color_combined(Color::Black);
 
         let mut eval = 0;
-        if total_material < 1600 {
+        if total_material > 1600 {
             for piece in ALL_PIECES {
                 let white_piece_bb = board.pieces(piece) & white_bb;
                 let black_piece_bb = board.pieces(piece) & black_bb;
-                eval += self.centralization_midgame(white_piece_bb, piece) - self.centralization_midgame(black_piece_bb, piece);
+                eval += self.centralization_midgame(white_piece_bb, piece, Color::White) - self.centralization_midgame(black_piece_bb, piece, Color::Black);
             }        
         } else {
             for piece in ALL_PIECES {
                 let white_piece_bb = board.pieces(piece) & white_bb;
                 let black_piece_bb = board.pieces(piece) & black_bb;
-                eval += self.centralization_midgame(white_piece_bb, piece) - self.centralization_midgame(black_piece_bb, piece);
+                eval += self.position_endgame(white_piece_bb, piece, Color::White) - self.position_endgame(black_piece_bb, piece, Color::Black);
             }
         }
         eval
@@ -236,7 +286,19 @@ impl Evaluator {
         eval -= PAWN_PROTECTOR_BONUS * black_protectors.popcnt() as i32;
         eval += PAWN_SECOND_PROTECTOR_BONUS * white_second_protectors.popcnt() as i32;
         eval -= PAWN_SECOND_PROTECTOR_BONUS * black_second_protectors.popcnt() as i32;
-        
+
+        for file in ALL_FILES {
+            if (white_kings & self.bb_utils.file_mask(file)) != EMPTY {
+                if (white_pawns & self.bb_utils.file_mask(file)) != EMPTY {
+                    eval += KING_ON_SEMI_OPEN;
+                }
+            }
+            if (black_kings & self.bb_utils.file_mask(file)) != EMPTY {
+                if (black_pawns & self.bb_utils.file_mask(file)) != EMPTY {
+                    eval -= KING_ON_SEMI_OPEN;
+                }
+            }
+        }
         eval
     }
 
