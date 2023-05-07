@@ -20,8 +20,10 @@ pub const DUMMY_MOVE : ChessMove = ChessMove {
 const FUTILITY_PRUNE_DEPTH : i32 = 3;
 const FUTILITY_VALUES : [i32; (FUTILITY_PRUNE_DEPTH+1) as usize] = [0, 200, 300, 500];
 
+
 const NULL_MOVE_MIN_REDUCTION : i32 = 3;
 const DELTA_PRUNE_MAX : i32 = 900;
+const DELTA_PRUNE_MATERIAL_CUTOFF : i32 = 1600;
 pub struct Cfg {
     depth_left : u32,
 }
@@ -296,7 +298,7 @@ impl Search {
     }
 
     fn should_delta_prune(&self, board : &Board, eval : i32, total_material : i32, capture : ChessMove, alpha : i32) -> bool {
-        if total_material > 1600 {
+        if total_material > DELTA_PRUNE_MATERIAL_CUTOFF {
             let captured_piece = board.piece_on(capture.get_dest()).unwrap();
             if eval + NAIVE_PIECE_VAL[captured_piece.to_index()] < alpha {
                 return true

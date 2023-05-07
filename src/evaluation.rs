@@ -76,15 +76,15 @@ const WHITE_PAWN_POSITION_ENDGAME : [i32; 64] =
     0,0,0,0,0,0,0,0,
     0,0,0,20,20,0,0,0,
     5,5,10,25,25,10,5,5,
-    10,10,20,30,30,20,10,10,
-    15,15,20,20,20,20,15,25,
+    20,10,20,30,30,20,10,20,
+    25,15,20,20,20,20,15,25,
     50,50,50,50,50,50,50,50,
     0,0,0,0,0,0,0,0];
 const BLACK_PAWN_POSITION_ENDGAME : [i32; 64] =
     [0,0,0,0,0,0,0,0,
     50,50,50,50,50,50,50,50,
-    15,15,20,20,20,20,15,25,
-    10,10,20,30,30,20,10,10,
+    25,15,20,20,20,20,15,25,
+    20,10,20,30,30,20,10,20,
     5,5,10,25,25,10,5,5,
     0,0,0,20,20,0,0,0,
     0,0,0,0,0,0,0,0,
@@ -96,6 +96,9 @@ const ALL_BLACK_POSITION_ENDGAME : [[i32 ; 64]; NUM_PIECES] =
     [BLACK_PAWN_POSITION_ENDGAME, KNIGHT_CENTRALIZATION_MIDGAME, SLIDER_CENTRALIZATION_ENDGAME, SLIDER_CENTRALIZATION_ENDGAME, SLIDER_CENTRALIZATION_ENDGAME, KING_CENTRALIZATION_ENDGAME];
 
 const MIDDLE_FILES : [File; 6] = [File::B, File::C, File::D, File::E, File::F, File::G];
+
+const EARLY_ENDGAME_CUTOFF : i32 = 2200;
+const LATE_ENDGAME_CUTOFF : i32 = 1600;
 
 pub fn eval_is_mate(eval : i32) -> bool {
     eval < i32::MIN + 1200 || eval > -(i32::MIN+1200) 
@@ -163,7 +166,7 @@ impl Evaluator {
         let black_bb = board.color_combined(Color::Black);
 
         let mut eval = 0;
-        if total_material > 1600 {
+        if total_material > EARLY_ENDGAME_CUTOFF {
             for piece in ALL_PIECES {
                 let white_piece_bb = board.pieces(piece) & white_bb;
                 let black_piece_bb = board.pieces(piece) & black_bb;
@@ -370,10 +373,9 @@ impl Evaluator {
         eval += self.get_passed_pawn_eval(board);
         eval += self.get_files_eval(board);
 
-        if total_material > 1600 {
+        if total_material > EARLY_ENDGAME_CUTOFF {
             eval += self.get_king_safety(board);
         }
-
         
 
         eval += TEMPO_VALUE;
